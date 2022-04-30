@@ -13,8 +13,7 @@ from .const import (
     TRANSLATION_LANGUAGES,
     STATE_CLASS_MEASUREMENT,
     STATE_CLASS_TOTAL_INCREASING,
-    ENTITY_CATEGORY_CONFIG,
-    ENTITY_CATEGORY_DIAGNOSTIC,
+    EntityCategory,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -59,6 +58,9 @@ SPEC_ERRORS = {
 }
 
 
+# https://iot.mi.com/new/doc/tools-and-resources/design/spec/overall
+# https://iot.mi.com/new/doc/tools-and-resources/design/spec/xiaoai
+# https://iot.mi.com/new/doc/tools-and-resources/design/spec/shortcut
 class MiotSpecInstance:
     def __init__(self, dat: dict):
         self.raw = dat
@@ -102,6 +104,7 @@ class MiotSpecInstance:
         dls = [
             des.lower(),
             des,
+            des.replace('-', ' '),
         ]
         tls = self.translations
         for d in dls:
@@ -502,8 +505,8 @@ class MiotProperty(MiotSpecInstance):
 
     @property
     def short_desc(self):
-        sde = self.service.description.strip()
-        pde = self.description.strip()
+        sde = (self.service.description or self.service.name).strip()
+        pde = (self.description or self.name).strip()
         des = pde
         if sde != pde:
             des = f'{sde} {pde}'.strip()
@@ -579,7 +582,7 @@ class MiotProperty(MiotSpecInstance):
             if val is None:
                 if des == '':
                     des = v.get('value')
-                rls.append(des)
+                rls.append(str(des))
             elif val == v.get('value'):
                 return des
         if self.value_range:
@@ -587,7 +590,7 @@ class MiotProperty(MiotSpecInstance):
                 # range to list
                 return self.list_descriptions()
             else:
-                return val
+                return str(val)
         return rls if val is None else None
 
     def list_descriptions(self, max_length=200):
@@ -777,11 +780,11 @@ class MiotProperty(MiotSpecInstance):
         cate = None
         name = self.name
         names = {
-            'battery_level': ENTITY_CATEGORY_DIAGNOSTIC,
-            'countdown_time': ENTITY_CATEGORY_CONFIG,
-            'fan_init_power_opt': ENTITY_CATEGORY_CONFIG,
-            'init_power_opt': ENTITY_CATEGORY_CONFIG,
-            'off_delay_time': ENTITY_CATEGORY_CONFIG,
+            'battery_level': EntityCategory.DIAGNOSTIC.value,
+            'countdown_time': EntityCategory.CONFIG.value,
+            'fan_init_power_opt': EntityCategory.CONFIG.value,
+            'init_power_opt': EntityCategory.CONFIG.value,
+            'off_delay_time': EntityCategory.CONFIG.value,
         }
         if name in names:
             cate = names[name]
@@ -915,7 +918,9 @@ class MiotResult:
 
     @property
     def is_success(self):
-        return self.code == 0
+        # 0: successful
+        # 1: operation not completed
+        return self.code in [0, 1]
 
     @property
     def spec_error(self):

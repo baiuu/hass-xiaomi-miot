@@ -22,7 +22,6 @@ from .core.miot_spec import (
     MiotSpec,
     MiotService,
 )
-from .binary_sensor import MiotBinarySensorSubEntity
 
 _LOGGER = logging.getLogger(__name__)
 DATA_KEY = f'{ENTITY_DOMAIN}.{DOMAIN}'
@@ -40,9 +39,9 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
     hass.data[DOMAIN]['add_entities'][ENTITY_DOMAIN] = async_add_entities
     config['hass'] = hass
     model = str(config.get(CONF_MODEL) or '')
+    spec = hass.data[DOMAIN]['miot_specs'].get(model)
     entities = []
-    if miot := config.get('miot_type'):
-        spec = await MiotSpec.async_from_type(hass, miot)
+    if isinstance(spec, MiotSpec):
         for srv in spec.get_services('watch', 'rearview_mirror', 'head_up_display'):
             if 'xiaoxun.watch.' in model:
                 entities.append(XiaoxunWatchTrackerEntity(config, srv))
@@ -83,13 +82,8 @@ class MiotTrackerEntity(MiotEntity, TrackerEntity):
         if prop := self._miot_service.get_property('current_address'):
             self._attr_location_name = prop.from_dict(self._state_attrs)
 
-        add_binary_sensors = self._add_entities.get('binary_sensor')
         for p in self._miot_service.get_properties('driving_status'):
-            if p.full_name in self._subs:
-                self._subs[p.full_name].update()
-            elif add_binary_sensors and p.format == 'bool':
-                self._subs[p.full_name] = MiotBinarySensorSubEntity(self, p)
-                add_binary_sensors([self._subs[p.full_name]], update_before_add=True)
+            self._update_sub_entities(p, None, 'binary_sensor')
 
     @property
     def should_poll(self):
@@ -150,9 +144,6 @@ class XiaoxunWatchTrackerEntity(MiotTrackerEntity):
 
     async def async_update(self):
         await super().async_update()
-        if not self._available:
-            pass
-            #return
         await self.update_location()
 
     async def update_location(self):
@@ -174,7 +165,7 @@ class XiaoxunWatchTrackerEntity(MiotTrackerEntity):
                 },
             },
         }
-        rdt = await self.hass.async_add_executor_job(mic.request_miot_api, 'third/api', pms) or {}
+        rdt = await mic.async_request_api('third/api', pms) or {}
         loc = {}
         for v in (rdt.get('result') or {}).get('PL', {}).get('List', {}).values():
             loc = v.get('result', {})
@@ -184,8 +175,8 @@ class XiaoxunWatchTrackerEntity(MiotTrackerEntity):
             return
         self.logger.debug('%s: Got xiaoxun watch location: %s', self.name_model, rdt)
         gps = f"{loc.get('location', '')},".split(',')
-        self._attr_latitude = float(gps[0])
-        self._attr_longitude = float(gps[1])
+        self._attr_latitude = float(gps[1])
+        self._attr_longitude = float(gps[0])
         self._attr_location_name = loc.get('desc')
         self._attr_location_accuracy = int(loc.get('radius') or 0)
         tim = loc.get('timestamp', '')
